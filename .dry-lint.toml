@@ -1,0 +1,6 @@
+# .dry-lint.toml
+preset = "jev"
+include = ["more_itertools/*"]
+exclude = ["*/tests/*", "tests/*", "*/migrations/*", "*/scripts/*"]
+[budget]
+usd = 0.04
