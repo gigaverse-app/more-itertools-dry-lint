@@ -1,0 +1,50 @@
+# .github/workflows/dry-lint.yml: annotate and comment on pull requests that re-implement existing code.
+#
+# Pull requests from this repository are judged and commented on here. Pull requests from forks get no secrets,
+# so this job only proposes candidates; add dry-lint-judge.yml to judge them.
+name: dry-lint
+on:
+  pull_request:
+    # Every label change runs it, with no `if` to skip one: a job skipped by `if` reports success, so a skipped run
+    # would turn a red required check green. Verdicts come from the cache, so a re-run costs no judge calls.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [master]  # your default branch: judges merged code, and its verdict cache is shared with every pull request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # A new push replaces a pull request's run. A run on main is never cancelled: it folds merged pull requests into
+  # the repository's ledger and saves the verdicts every pull request restores.
+  group: dry-lint-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dry-lint:
+    # A fork's run cannot judge, so it must not report as the `dry-lint` check a branch rule requires: it is named
+    # `dry-lint detect`, and dry-lint-judge.yml posts the judged `dry-lint` check for it.
+    name: >-
+      ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name
+      != github.event.pull_request.base.repo.full_name
+      && 'dry-lint detect' || 'dry-lint' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1  # enough: the action fetches just the base and head ancestry it needs
+          persist-credentials: false
+      - uses: gigaverse-app/dry-lint@v1
+        with:
+          # Your TypeSafe key's secret, whatever you named it. The preset comes from .dry-lint.toml.
+          typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
+          # anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # preset jev+opus: Claude Opus re-judges uncertain scores
+          # Once .dry-lint/baseline.json is committed: old debt passes, new or widened debt fails, and a missing key
+          # or failed judge fails instead of passing unjudged.
+          baseline: .dry-lint/baseline.json
+          require-complete: 'true'
+          # Every reported duplicate fails the check; the `dry-lint: override` label lets one through.
+          # fail-at: "0.91"     # fail only on near-certain duplicates; the rest warn
+          # warn-only: "true"   # never fail
